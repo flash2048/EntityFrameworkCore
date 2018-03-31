@@ -5,6 +5,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using JetBrains.Annotations;
+using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Utilities;
@@ -53,23 +54,21 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Conventions.Internal
                 return entityTypeBuilder;
             }
 
-            foreach (var navigationPropertyInfo in entityType.ClrType.GetRuntimeProperties().OrderBy(p => p.Name))
+            foreach (var navigationPropertyInfo in entityType.GetRuntimeProperties().Values.OrderBy(p => p.Name))
             {
                 var targetClrType = FindCandidateNavigationPropertyType(navigationPropertyInfo);
-                if (targetClrType == null)
+                if (targetClrType == null
+                    || !Attribute.IsDefined(navigationPropertyInfo, typeof(TAttribute), inherit: true))
                 {
                     continue;
                 }
 
-                var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(true);
-                if (attributes != null)
+                var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(inherit: true);
+                foreach (var attribute in attributes)
                 {
-                    foreach (var attribute in attributes)
+                    if (Apply(entityTypeBuilder, navigationPropertyInfo, targetClrType, attribute) == null)
                     {
-                        if (Apply(entityTypeBuilder, navigationPropertyInfo, targetClrType, attribute) == null)
-                        {
-                            return null;
-                        }
+                        return null;
                     }
                 }
             }
@@ -91,20 +90,18 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Conventions.Internal
             foreach (var navigationPropertyInfo in type.GetRuntimeProperties().OrderBy(p => p.Name))
             {
                 var targetClrType = FindCandidateNavigationPropertyType(navigationPropertyInfo);
-                if (targetClrType == null)
+                if (targetClrType == null
+                    || !Attribute.IsDefined(navigationPropertyInfo, typeof(TAttribute), inherit: true))
                 {
                     continue;
                 }
 
                 var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(true);
-                if (attributes != null)
+                foreach (var attribute in attributes)
                 {
-                    foreach (var attribute in attributes)
+                    if (!Apply(modelBuilder, type, navigationPropertyInfo, targetClrType, attribute))
                     {
-                        if (!Apply(modelBuilder, type, navigationPropertyInfo, targetClrType, attribute))
-                        {
-                            return false;
-                        }
+                        return false;
                     }
                 }
             }
@@ -116,24 +113,23 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Conventions.Internal
         ///     This API supports the Entity Framework Core infrastructure and is not intended to be used
         ///     directly from your code. This API may change or be removed in future releases.
         /// </summary>
-        public virtual InternalRelationshipBuilder Apply(InternalRelationshipBuilder relationshipBuilder, Navigation navigation)
+        public virtual InternalRelationshipBuilder Apply(
+            InternalRelationshipBuilder relationshipBuilder, Navigation navigation)
         {
             var navigationPropertyInfo = navigation.GetIdentifyingMemberInfo();
-            if (navigationPropertyInfo == null)
+            if (navigationPropertyInfo == null
+                || !Attribute.IsDefined(navigationPropertyInfo, typeof(TAttribute), inherit: true))
             {
                 return relationshipBuilder;
             }
 
             var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(true);
-            if (attributes != null)
+            foreach (var attribute in attributes)
             {
-                foreach (var attribute in attributes)
+                relationshipBuilder = Apply(relationshipBuilder, navigation, attribute);
+                if (relationshipBuilder == null)
                 {
-                    relationshipBuilder = Apply(relationshipBuilder, navigation, attribute);
-                    if (relationshipBuilder == null)
-                    {
-                        return null;
-                    }
+                    return null;
                 }
             }
 
@@ -146,29 +142,27 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Conventions.Internal
         /// </summary>
         public virtual bool Apply(InternalEntityTypeBuilder entityTypeBuilder, EntityType oldBaseType)
         {
-            var clrType = entityTypeBuilder.Metadata.ClrType;
-            if (clrType == null)
+            var entityType = entityTypeBuilder.Metadata;
+            if (!entityType.HasClrType())
             {
                 return true;
             }
 
-            foreach (var navigationPropertyInfo in clrType.GetRuntimeProperties().OrderBy(p => p.Name))
+            foreach (var navigationPropertyInfo in entityType.GetRuntimeProperties().Values.OrderBy(p => p.Name))
             {
                 var targetClrType = FindCandidateNavigationPropertyType(navigationPropertyInfo);
-                if (targetClrType == null)
+                if (targetClrType == null
+                    || !Attribute.IsDefined(navigationPropertyInfo, typeof(TAttribute), inherit: true))
                 {
                     continue;
                 }
 
                 var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(true);
-                if (attributes != null)
+                foreach (var attribute in attributes)
                 {
-                    foreach (var attribute in attributes)
+                    if (!Apply(entityTypeBuilder, oldBaseType, navigationPropertyInfo, targetClrType, attribute))
                     {
-                        if (!Apply(entityTypeBuilder, oldBaseType, navigationPropertyInfo, targetClrType, attribute))
-                        {
-                            return false;
-                        }
+                        return false;
                     }
                 }
             }
@@ -183,27 +177,25 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Conventions.Internal
         public virtual bool Apply(InternalEntityTypeBuilder entityTypeBuilder, string ignoredMemberName)
         {
             var navigationPropertyInfo =
-                entityTypeBuilder.Metadata.ClrType.GetRuntimeProperties().FirstOrDefault(p => p.Name == ignoredMemberName);
+                entityTypeBuilder.Metadata.GetRuntimeProperties()?.Find(ignoredMemberName);
             if (navigationPropertyInfo == null)
             {
                 return true;
             }
 
             var targetClrType = FindCandidateNavigationPropertyType(navigationPropertyInfo);
-            if (targetClrType == null)
+            if (targetClrType == null
+                || !Attribute.IsDefined(navigationPropertyInfo, typeof(TAttribute), inherit: true))
             {
                 return true;
             }
 
             var attributes = navigationPropertyInfo.GetCustomAttributes<TAttribute>(true);
-            if (attributes != null)
+            foreach (var attribute in attributes)
             {
-                foreach (var attribute in attributes)
+                if (!ApplyIgnored(entityTypeBuilder, navigationPropertyInfo, targetClrType, attribute))
                 {
-                    if (!ApplyIgnored(entityTypeBuilder, navigationPropertyInfo, targetClrType, attribute))
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
             return true;
